@@ -76,10 +76,12 @@ function resolveTools() {
     nifc:      pick("AIFMONY_NIFC",      "nifc",      firstExisting(repoBin("nifc"))),
     // OUR lowering pass (aifhexer). When present it replaces nimony's hexer in
     // the pipeline; set AIFMONY_NO_AIFHEXER=1 to fall back to nimony's hexer.
-    aifhexer:  pick("AIFMONY_HEXER",     "aifhexer",  firstExisting([path.join(HOME, "aifhexer/bin/aifhexer")])),
+    aifhexer:  pick("AIFMONY_HEXER",     "aifhexer",  firstExisting([
+                 path.join(HOME, "aowlhexer/bin/aowlhexer"), path.join(HOME, "aifhexer/bin/aifhexer")])),
     // OUR .c.aif optimizer (the pass stock hexer/lengc lacks). Applied before
     // codegen unless AIFMONY_NO_OPT=1.
-    aifopt:    pick("AIFMONY_OPT",       "aifopt",    firstExisting([path.join(HOME, "aifhexer/opt/aifopt.js")])),
+    aifopt:    pick("AIFMONY_OPT",       "aifopt",    firstExisting([
+                 path.join(HOME, "aowlhexer/opt/aifopt.js"), path.join(HOME, "aifhexer/opt/aifopt.js")])),
   };
 }
 
