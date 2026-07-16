@@ -1,0 +1,227 @@
+#!/usr/bin/env node
+// nifmony — the nimony rewrite driver over the aoughwl self-owned stack.
+//
+//   .nim ──► nifparser (ours) ──► nimony sem + hexer (reused) ──► .s.nif / .c.nif
+//                                                                    │        │
+//                                              nifi (ours, interpret)┘        └─ nifc (ours, native C → gcc)
+//
+// The user's own module(s) are parsed by OUR nifparser; the standard library is
+// parsed by the real nifler (it uses `concept`/typed-nil forms nifparser does
+// not emit yet — a known nifparser gap). Semantic analysis and hexer's lowering
+// (ARC, closures, exceptions, monomorphisation) are reused from nimony until the
+// self-owned nifsem is finished. Code is then either run natively via nifc or
+// interpreted via nifi — the interpreter is a first-class execution mode, and is
+// also the intended compile-time / macro engine (replacing nimony's build-and-
+// exec native macro plugins).
+//
+// Commands:
+//   nifmony run    <file.nim>                      native: whole module → binary → run
+//   nifmony build  <file.nim> [-o BIN]             native: emit a binary at BIN
+//   nifmony exec   <file.nim> --entry NAME [--arg V…]   native: call one proc, print result
+//   nifmony interp <file.nim>                      interpret via nifi (first-class)
+//   nifmony vm     <file.nim>                      interpret via nifi's bytecode VM
+//   nifmony parse  <file.nim>                      show OUR nifparser .p.nif
+//   nifmony nif    <file.nim>                      compile only; print .s.nif / .c.nif paths
+//
+// Options: -o/--out, --entry, --arg (repeatable), --engine c|nifc, --keep, -v/--verbose
+//
+// Tool locations resolve from env (NIFMONY_*), then ./nifmony.config.json, then
+// ~/{nimony,nifparser,nifi,nifc} defaults. See `resolveTools()`.
+"use strict";
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+const cp = require("child_process");
+
+const HOME = os.homedir();
+function firstExisting(cands) { for (const c of cands) if (c && fs.existsSync(c)) return c; return cands[cands.length - 1]; }
+// nifparser's binary may live in bin/ or, when a sibling session is rebuilding,
+// only in a nimcache build dir. Glob both so the driver keeps working.
+function nifparserCandidates() {
+  const out = [path.join(HOME, "nifparser/bin/nifparser"),
+              path.join(__dirname, "..", "vendor", "nifparser")];
+  const ncDir = path.join(HOME, "nifparser/nimcache");
+  try {
+    for (const d of fs.readdirSync(ncDir)) {
+      const c = path.join(ncDir, d, "nifparser");
+      if (fs.existsSync(c)) out.push(c);
+    }
+  } catch (_) {}
+  return out;
+}
+
+function resolveTools() {
+  let cfg = {};
+  const cfgPath = path.join(process.cwd(), "nifmony.config.json");
+  if (fs.existsSync(cfgPath)) { try { cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8")); } catch (_) {} }
+  const pick = (env, key, def) => process.env[env] || cfg[key] || def;
+  return {
+    nimony:    pick("NIFMONY_NIMONY",    "nimony",    firstExisting([path.join(HOME, "nimony/bin/nimony")])),
+    niflerReal:pick("NIFMONY_NIFLER",    "nifler",    firstExisting([path.join(HOME, "nimony/bin/nifler")])),
+    nifparser: pick("NIFMONY_NIFPARSER", "nifparser", firstExisting(nifparserCandidates())),
+    nifiInterp:pick("NIFMONY_NIFI",      "nifiInterp",firstExisting([path.join(HOME, "nifi/bin/nifi-interp")])),
+    nifiVm:    pick("NIFMONY_NIFI_VM",   "nifiVm",    firstExisting([path.join(HOME, "nifi/bin/nifi-vm")])),
+    nifc:      pick("NIFMONY_NIFC",      "nifc",      firstExisting([path.join(HOME, "nifc/bin/nifc")])),
+  };
+}
+
+function fail(msg) { console.error("nifmony: " + msg); process.exit(1); }
+function log(o, ...a) { if (o.verbose) console.error("nifmony:", ...a); }
+
+function parseArgs(argv) {
+  const o = { args: [], _: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--") { o._.push(...argv.slice(i + 1)); break; }
+    else if (a === "-o" || a === "--out") o.out = argv[++i];
+    else if (a === "--entry") o.entry = argv[++i];
+    else if (a === "--arg") o.args.push(argv[++i]);
+    else if (a === "--engine") o.engine = argv[++i];
+    else if (a === "--keep") o.keep = true;
+    else if (a === "-v" || a === "--verbose") o.verbose = true;
+    else o._.push(a);
+  }
+  return o;
+}
+
+// The nifler-compatible shim: OUR nifparser for the user module(s) in
+// $NIFRW_USER; the real nifler for the stdlib and the --deps import sidecar.
+function shimScript(t) {
+  return `#!/usr/bin/env bash
+REAL_NIFLER=${JSON.stringify(t.niflerReal)}
+NIFPARSER=${JSON.stringify(t.nifparser)}
+wants_deps=0; pos=(); infile=""
+for a in "$@"; do
+  case "$a" in
+    --deps) wants_deps=1 ;;
+    --portablePaths|-f|--forceRebuild|--deps*) ;;
+    p|parse) pos+=("p") ;;
+    *.nim) pos+=("$a"); infile="$a" ;;
+    *) pos+=("$a") ;;
+  esac
+done
+real_in="$(readlink -f "$infile" 2>/dev/null)"
+is_user=0
+IFS=':' read -ra USERS <<< "\${NIFRW_USER:-}"
+for u in "\${USERS[@]}"; do [ -n "$u" ] && [ "$(readlink -f "$u" 2>/dev/null)" = "$real_in" ] && is_user=1; done
+if [ "$is_user" = 1 ]; then
+  [ "$wants_deps" = 1 ] && "$REAL_NIFLER" "$@" >/dev/null 2>&1
+  exec "$NIFPARSER" "\${pos[@]}"
+else
+  exec "$REAL_NIFLER" "$@"
+fi
+`;
+}
+
+// Run nifparser → nimony (sem+hexer) and return { dir, mainHash, snif, cnif, pnif }.
+// The staging dir is persistent and keyed by the source path so `nimony c`'s
+// incremental cache is reused across invocations (only the first run is cold).
+function compile(nimFile, o, t) {
+  if (!fs.existsSync(nimFile)) fail("no such file: " + nimFile);
+  const abs = path.resolve(nimFile);
+  const key = require("crypto").createHash("sha1").update(abs).digest("hex").slice(0, 12);
+  const stage = o.out && o.keep ? path.join(path.dirname(abs), ".nifmony")
+    : path.join(os.tmpdir(), "nifmony-cache", key);
+  fs.mkdirSync(stage, { recursive: true });
+  const shim = path.join(stage, "nifler");
+  fs.writeFileSync(shim, shimScript(t)); fs.chmodSync(shim, 0o755);
+  const nc = path.join(stage, "nc");
+
+  const env = Object.assign({}, process.env, {
+    NIFRW_USER: abs,
+    PATH: stage + path.delimiter + process.env.PATH,
+  });
+  log(o, "nifparser parses", path.basename(abs) + "; nimony sem+hexer via", t.nimony);
+  const r = cp.spawnSync(t.nimony, ["c", "--nimcache:" + nc, abs],
+    { cwd: stage, env, encoding: "utf8" });
+  if (o.verbose && r.stderr) process.stderr.write(r.stderr);
+
+  // main module: the nc subdir that holds <hash>.c.nif matching its own name
+  let mainHash = null, cnif = null;
+  if (fs.existsSync(nc)) {
+    for (const d of fs.readdirSync(nc)) {
+      const sub = path.join(nc, d);
+      if (fs.statSync(sub).isDirectory()) {
+        const c = path.join(sub, d + ".c.nif");
+        if (fs.existsSync(c)) { mainHash = d; cnif = c; break; }
+      }
+    }
+  }
+  if (!mainHash) {
+    if (r.status !== 0) { process.stderr.write(r.stderr || r.stdout || ""); fail("nimony frontend failed"); }
+    fail("could not locate the compiled main module (.c.nif) in " + nc);
+  }
+  const snif = path.join(nc, mainHash + ".s.nif");
+  const pnif = path.join(nc, mainHash + ".p.nif");
+  // provenance check: the user module must have been parsed by OUR nifparser
+  let byOurParser = false;
+  try { byOurParser = /vendor "nifparser"/.test(fs.readFileSync(pnif, "utf8")); } catch (_) {}
+  return { stage, nc, mainHash, snif, cnif, pnif, byOurParser };
+}
+
+function runTool(bin, args, opts = {}) {
+  return cp.spawnSync(bin, args, Object.assign({ stdio: "inherit" }, opts));
+}
+
+function main() {
+  const argv = process.argv.slice(2);
+  const cmd = argv[0];
+  const o = parseArgs(argv.slice(1));
+  const t = resolveTools();
+
+  if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") {
+    process.stdout.write(fs.readFileSync(__filename, "utf8").split("\n")
+      .slice(1, 40).map((l) => l.replace(/^\/\/ ?/, "")).join("\n") + "\n");
+    return;
+  }
+
+  if (cmd === "parse") {
+    const f = o._[0]; if (!f) fail("parse needs a .nim file");
+    const r = runTool(t.nifparser, ["p", f, "-"]);   // '-' output → stdout
+    process.exit(r.status || 0);
+  }
+
+  const file = o._[0];
+  if (!file) fail(cmd + " needs a .nim file");
+  const b = compile(file, o, t);
+  if (o.verbose) log(o, "main module", b.mainHash, "parsed by",
+    b.byOurParser ? "nifparser (ours)" : "nifler (fallback)");
+
+  switch (cmd) {
+    case "nif":
+      console.log(".p.nif  " + b.pnif + (b.byOurParser ? "  (nifparser)" : "  (nifler)"));
+      console.log(".s.nif  " + b.snif);
+      console.log(".c.nif  " + b.cnif);
+      break;
+    case "interp": {
+      const r = runTool(t.nifiInterp, [b.snif]);
+      process.exit(r.status == null ? 0 : r.status);
+    }
+    case "vm": {
+      const r = runTool(t.nifiVm, [b.snif]);
+      process.exit(r.status == null ? 0 : r.status);
+    }
+    case "exec": {
+      if (!o.entry) fail("exec needs --entry NAME");
+      const a = ["exec", b.cnif, "--entry", o.entry];
+      for (const v of o.args) a.push("--arg", v);
+      const r = runTool("node", [t.nifc, ...a]);
+      process.exit(r.status == null ? 0 : r.status);
+    }
+    case "build": {
+      const a = ["build", b.cnif];
+      if (o.out) a.push("-o", o.out);
+      const r = runTool("node", [t.nifc, ...a]);
+      process.exit(r.status == null ? 0 : r.status);
+    }
+    case "run": {
+      const a = ["run", b.cnif];
+      const r = runTool("node", [t.nifc, ...a]);
+      process.exit(r.status == null ? 0 : r.status);
+    }
+    default:
+      fail("unknown command '" + cmd + "'. Try `nifmony help`.");
+  }
+}
+
+try { main(); } catch (e) { fail((e && e.stack) || String(e)); }

@@ -1,0 +1,9 @@
+{
+  "_comment": "Override tool locations here or via NIFMONY_* env vars. Defaults resolve to ~/{nimony,nifparser,nifi,nifc}.",
+  "nimony":    "",
+  "nifler":    "",
+  "nifparser": "",
+  "nifiInterp":"",
+  "nifiVm":    "",
+  "nifc":      ""
+}
