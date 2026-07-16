@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// nifmony — the nimony rewrite driver over the aoughwl self-owned stack.
+// aifmony — the nimony rewrite driver over the aoughwl self-owned stack.
 //
 //   .nim ──► nifparser (ours) ──► nimony sem + hexer (reused) ──► .s.nif / .c.nif
 //                                                                    │        │
@@ -15,17 +15,17 @@
 // exec native macro plugins).
 //
 // Commands:
-//   nifmony run    <file.nim>                      native: whole module → binary → run
-//   nifmony build  <file.nim> [-o BIN]             native: emit a binary at BIN
-//   nifmony exec   <file.nim> --entry NAME [--arg V…]   native: call one proc, print result
-//   nifmony interp <file.nim>                      interpret via nifi (first-class)
-//   nifmony vm     <file.nim>                      interpret via nifi's bytecode VM
-//   nifmony parse  <file.nim>                      show OUR nifparser .p.nif
-//   nifmony nif    <file.nim>                      compile only; print .s.nif / .c.nif paths
+//   aifmony run    <file.nim>                      native: whole module → binary → run
+//   aifmony build  <file.nim> [-o BIN]             native: emit a binary at BIN
+//   aifmony exec   <file.nim> --entry NAME [--arg V…]   native: call one proc, print result
+//   aifmony interp <file.nim>                      interpret via nifi (first-class)
+//   aifmony vm     <file.nim>                      interpret via nifi's bytecode VM
+//   aifmony parse  <file.nim>                      show OUR nifparser .p.nif
+//   aifmony nif    <file.nim>                      compile only; print .s.nif / .c.nif paths
 //
 // Options: -o/--out, --entry, --arg (repeatable), --engine c|nifc, --keep, -v/--verbose
 //
-// Tool locations resolve from env (NIFMONY_*), then ./nifmony.config.json, then
+// Tool locations resolve from env (AIFMONY_*), then ./aifmony.config.json, then
 // ~/{nimony,nifparser,nifi,nifc} defaults. See `resolveTools()`.
 "use strict";
 const fs = require("fs");
@@ -52,21 +52,21 @@ function nifparserCandidates() {
 
 function resolveTools() {
   let cfg = {};
-  const cfgPath = path.join(process.cwd(), "nifmony.config.json");
+  const cfgPath = path.join(process.cwd(), "aifmony.config.json");
   if (fs.existsSync(cfgPath)) { try { cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8")); } catch (_) {} }
   const pick = (env, key, def) => process.env[env] || cfg[key] || def;
   return {
-    nimony:    pick("NIFMONY_NIMONY",    "nimony",    firstExisting([path.join(HOME, "nimony/bin/nimony")])),
-    niflerReal:pick("NIFMONY_NIFLER",    "nifler",    firstExisting([path.join(HOME, "nimony/bin/nifler")])),
-    nifparser: pick("NIFMONY_NIFPARSER", "nifparser", firstExisting(nifparserCandidates())),
-    nifiInterp:pick("NIFMONY_NIFI",      "nifiInterp",firstExisting([path.join(HOME, "nifi/bin/nifi-interp")])),
-    nifiVm:    pick("NIFMONY_NIFI_VM",   "nifiVm",    firstExisting([path.join(HOME, "nifi/bin/nifi-vm")])),
-    nifc:      pick("NIFMONY_NIFC",      "nifc",      firstExisting([path.join(HOME, "nifc/bin/nifc")])),
+    nimony:    pick("AIFMONY_NIMONY",    "nimony",    firstExisting([path.join(HOME, "nimony/bin/nimony")])),
+    niflerReal:pick("AIFMONY_NIFLER",    "nifler",    firstExisting([path.join(HOME, "nimony/bin/nifler")])),
+    nifparser: pick("AIFMONY_NIFPARSER", "nifparser", firstExisting(nifparserCandidates())),
+    nifiInterp:pick("AIFMONY_NIFI",      "nifiInterp",firstExisting([path.join(HOME, "nifi/bin/nifi-interp")])),
+    nifiVm:    pick("AIFMONY_NIFI_VM",   "nifiVm",    firstExisting([path.join(HOME, "nifi/bin/nifi-vm")])),
+    nifc:      pick("AIFMONY_NIFC",      "nifc",      firstExisting([path.join(HOME, "nifc/bin/nifc")])),
   };
 }
 
-function fail(msg) { console.error("nifmony: " + msg); process.exit(1); }
-function log(o, ...a) { if (o.verbose) console.error("nifmony:", ...a); }
+function fail(msg) { console.error("aifmony: " + msg); process.exit(1); }
+function log(o, ...a) { if (o.verbose) console.error("aifmony:", ...a); }
 
 function parseArgs(argv) {
   const o = { args: [], _: [] };
@@ -120,8 +120,8 @@ function compile(nimFile, o, t) {
   if (!fs.existsSync(nimFile)) fail("no such file: " + nimFile);
   const abs = path.resolve(nimFile);
   const key = require("crypto").createHash("sha1").update(abs).digest("hex").slice(0, 12);
-  const stage = o.out && o.keep ? path.join(path.dirname(abs), ".nifmony")
-    : path.join(os.tmpdir(), "nifmony-cache", key);
+  const stage = o.out && o.keep ? path.join(path.dirname(abs), ".aifmony")
+    : path.join(os.tmpdir(), "aifmony-cache", key);
   fs.mkdirSync(stage, { recursive: true });
   const shim = path.join(stage, "nifler");
   fs.writeFileSync(shim, shimScript(t)); fs.chmodSync(shim, 0o755);
@@ -220,7 +220,7 @@ function main() {
       process.exit(r.status == null ? 0 : r.status);
     }
     default:
-      fail("unknown command '" + cmd + "'. Try `nifmony help`.");
+      fail("unknown command '" + cmd + "'. Try `aifmony help`.");
   }
 }
 

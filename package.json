@@ -1,11 +1,11 @@
 {
-  "name": "nifmony",
+  "name": "aifmony",
   "version": "0.1.0",
   "description": "A nimony rewrite driver over the aoughwl self-owned stack: nifparser -> sem+hexer -> {nifc native | nifi interpret | nifjs web}",
   "keywords": ["nimony", "nif", "compiler", "driver", "nifparser", "nifc", "nifi", "backend"],
-  "bin": { "nifmony": "bin/nifmony" },
+  "bin": { "aifmony": "bin/aifmony" },
   "scripts": { "test": "node test/test.js" },
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/aoughwl/nifmony.git" },
-  "homepage": "https://aoughwl.github.io/docs/nifmony"
+  "repository": { "type": "git", "url": "https://github.com/aoughwl/aifmony.git" },
+  "homepage": "https://aoughwl.github.io/docs/aifmony"
 }
