@@ -74,7 +74,7 @@ function resolveTools() {
     nifiInterp:pick("AIFMONY_NIFI",      "nifiInterp",firstExisting(repoBin("nifi", "-interp"))),
     nifiVm:    pick("AIFMONY_NIFI_VM",   "nifiVm",    firstExisting(repoBin("nifi", "-vm"))),
     nifc:      pick("AIFMONY_NIFC",      "nifc",      firstExisting(repoBin("nifc"))),
-    // OUR lowering pass (aifhexer). When present it replaces nimony's hexer in
+    // OUR lowering pass (aowlhexer). When present it replaces nimony's hexer in
     // the pipeline; set AIFMONY_NO_AIFHEXER=1 to fall back to nimony's hexer.
     aifhexer:  pick("AIFMONY_HEXER",     "aifhexer",  firstExisting([
                  path.join(HOME, "aowlhexer/bin/aowlhexer"), path.join(HOME, "aifhexer/bin/aifhexer")])),
@@ -156,7 +156,7 @@ function compile(nimFile, o, t) {
   fs.mkdirSync(stage, { recursive: true });
   const shim = path.join(stage, "nifler");
   fs.writeFileSync(shim, shimScript(t)); fs.chmodSync(shim, 0o755);
-  // Stage a `hexer` shim → aifhexer so nimony's build (findTool("hexer")) uses
+  // Stage a `hexer` shim → aowlhexer so nimony's build (findTool("hexer")) uses
   // OUR lowering pass. Disable with AIFMONY_NO_AIFHEXER=1.
   const useAifhexer = t.aifhexer && fs.existsSync(t.aifhexer) && !process.env.AIFMONY_NO_AIFHEXER;
   const hexerShim = path.join(stage, "hexer");
@@ -174,7 +174,7 @@ function compile(nimFile, o, t) {
     PATH: stage + path.delimiter + process.env.PATH,
   });
   log(o, "nifparser parses", path.basename(abs) + "; sem via nimony;",
-    useAifhexer ? "lowering via aifhexer (ours)" : "lowering via nimony hexer");
+    useAifhexer ? "lowering via aowlhexer (ours)" : "lowering via nimony hexer");
   const r = cp.spawnSync(t.nimony, ["c", "--nimcache:" + nc, abs],
     { cwd: stage, env, encoding: "utf8" });
   if (o.verbose && r.stderr) process.stderr.write(r.stderr);
