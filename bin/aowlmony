@@ -329,7 +329,7 @@ function main() {
 
   if (t.semVariant === "aowlsem")
     console.error("  " + C.amber("!") + " " + C.gray("profile selects ") + C.cyan("sem=aowlsem") +
-      C.gray(" — not yet wired into the driver; using nimony sem for this build"));
+      C.gray(", but aowlsem can't yet semcheck std/system in the nimony-c build — using nimony sem (auto-adopts when aowlsem covers system)"));
 
   if (cmd === "parse") {
     const f = o._[0]; if (!f) fail("parse needs a .nim file");

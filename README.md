@@ -74,8 +74,18 @@ AOWLMONY_* env  →  aowlmony.config.json  →  aowlup registry  →  dev-fallba
 The per-source build cache is keyed on the active variants, so switching profile
 never reuses another profile's artifacts.
 
-> **Note.** `sem=aowlsem` is not yet wired into the driver (sem still runs inside
-> `nimony c`); selecting it prints a note and falls back to nimony sem.
+**What each slot honors.** The **parser** (`aowlparser` vs `nifler`) and the
+**lowering** (`aowlhexer` vs nimony's `hexer`) are swapped in via nimony's
+`findTool` shim seam, so the active profile genuinely controls them —
+`aowlmony +aowl run f.nim -v` reports *parsed by aowlparser / lowering via
+aowlhexer*, `+nimony` reports *nifler / nimony hexer*. Backends
+(`native/interp/js/…`) resolve their exes from the registry.
+
+> **`sem=aowlsem`** is the one slot the driver can't honor yet: `aowlsem` can't
+> semcheck `std/system` inside the `nimony c` build (it computes different
+> include-module hashes and doesn't emit the `.s.idx.nif` index), so selecting it
+> falls back to nimony `nimsem` with a note. The driver adopts `aowlsem`
+> automatically once it covers `system` — no driver change needed.
 
 ## The interpreter is first-class
 
